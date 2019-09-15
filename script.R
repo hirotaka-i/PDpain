@@ -1,9 +1,9 @@
 rm(list=ls())
-setwd('/home/rstudio/test/dulo/anlysis/')
+setwd('/home/rstudio/wkdir/PDpain/')
 library(tidyverse)
 library(data.table)
 #################################################
-assign = read_csv('CymbaltaTrial_Assign.csv', locale = locale(encoding = "cp932"))
+assign = read_csv('data/CymbaltaTrial_Assign.csv', locale = locale(encoding = "cp932"))
 vAssign = c('id', 'grp', 'day0', 'dob', 'age', 'sex', 'vas')
 colnames(assign)[c(1,5, 7, 9, 10, 11, 12)] = vAssign
 assign = assign %>% 
@@ -14,7 +14,7 @@ assign = assign %>%
 assign$grp = rnorm(nrow(assign))<0 # temporary
 
 ##################################################
-patient = read_csv('CymbaltaTrial_Patient.csv', na = c("@", ""),
+patient = read_csv('data/CymbaltaTrial_Patient.csv', na = c("@", ""),
                    locale = (locale(encoding = 'cp932')))
 
 sfpain=vector(); bdi=vector(); updrs=vector()
@@ -47,7 +47,7 @@ colnames(patient)[c(1, 13, 14, 15, 16, 17, 18, 19, 34, 39,
 patient$EVENT='BL'
 
 ##########################################
-w10 = read_csv('CymbaltaTrial_FollowW10.csv', na = c("@", ""), 
+w10 = read_csv('data/CymbaltaTrial_FollowW10.csv', na = c("@", ""), 
                locale = (locale(encoding = 'cp932')))
 vW10 =   c('id', 'date_visit', 'bw', 'compliance', 'drug_change', 'ldbz', 'ldcd',
            'ldcden', 'ropin', 'pramp', 'rotig', 'apomo',
@@ -73,7 +73,7 @@ colnames(w10)[c(1, 7, 9, 20, 21,
 w10$EVENT = 'W10'
 
 ##### cancel table merge and create FAS and PPS indicator
-cancel = read_csv('CymbaltaTrial_Cancel.csv', na = c("@", ""), 
+cancel = read_csv('data/CymbaltaTrial_Cancel.csv', na = c("@", ""), 
                   locale = locale(encoding='cp932'))
 vCancel =   c('id', 'date_visit', 'bw', 'compliance',
               'yahr_on', 'yahr_off',
@@ -89,8 +89,9 @@ colnames(cancel)[c(1, 7, 9, 19, 351:352, 355:372, 374:395, 397:425,
 cancel$EVENT='CANCEL'
 
 ### W14
-w14= read_csv('CymbaltaTrial_Summary.csv', na = c("@", ""), 
+w14= read_csv('data/CymbaltaTrial_Summary.csv', na = c("@", ""), 
               locale = locale(encoding='cp932'))
+names(w14) %>% print
 vW14 =   c('id', 'date_visit', 'bw','drug_change', 'ldbz', 'ldcd',
            'ldcden', 'ropin', 'pramp', 'rotig', 'apomo',
            'bromo', 'caber', 'pergo', 'seleg', 'amant',
@@ -99,8 +100,8 @@ vW14 =   c('id', 'date_visit', 'bw','drug_change', 'ldbz', 'ldcd',
            'yahr_on', 'yahr_off',
            sfpain, 'sfpain', 'vas', 'sfpain_intense')
 
-colnames(w14)[c(1, 7, 9, 17,
-                20, 25, 30, seq(38, 98, 5),
+colnames(w14)[c(1, 7, 8, 13,
+                18, 23, 28, seq(38, 98, 5),
                 292,
                 343, 344,
                 346:363)]= vW14
@@ -128,7 +129,7 @@ df = bind_rows(patient, w10, cancel, w14) %>%
 
 
 
-write.csv(df, 'toAnalyze.csv', fileEncoding = 'cp932', row.names = F)
+write.csv(df, 'temp/toAnalyze.csv', fileEncoding = 'cp932', row.names = F)
 
 
 
@@ -138,10 +139,17 @@ write.csv(df, 'toAnalyze.csv', fileEncoding = 'cp932', row.names = F)
 drugs = c('ldbz', 'ldcd','ldcden', 'ropin', 'pramp', 'rotig', 'apomo',
           'bromo', 'caber', 'pergo', 'seleg', 'amant','zonis', 'istra', 
           'dorox', 'trihe', 'poultice')
+basev = c('date_motor', 'pddrug_effective', 'painpart', 'painpart2', 'date_pain', 'height', 'bw')
 
-df = read_csv('toAnalyze.csv', locale = locale(encoding = 'cp932')) %>%
+library(zoo)
+df = read_csv('temp/toAnalyze.csv', locale = locale(encoding = 'cp932')) %>%
   # filter cancel without compliance
-  filter(!(EVENT=='CANCEL'&is.na(compliance))) %>%
+  filter(!(EVENT=='CANCEL' & is.na(compliance))) %>%
+  # correct missed coding
+  mutate(pergo=ifelse(id=='01-00027'&EVENT=='BL', 0.75, pergo)) %>%
+  # lost observation carry forward
+  group_by(id) %>%
+  mutate_at(vars(c(drugs, basev)), na.locf0) %>%
   # calculate drug equivalent dose, get the summary score
   mutate_at(vars(drugs), list(function(x){
     ifelse(is.na(x), 0, x)
@@ -164,10 +172,39 @@ df = read_csv('toAnalyze.csv', locale = locale(encoding = 'cp932')) %>%
 
 idDrop = df %>% filter(EVENT=='CANCEL') %>% .$id %>% unique
 
+
+df$painpart %>% unique
+df = df %>% mutate(
+  pain_lwrExtrimities=case_when(
+    grepl('下肢', painpart) | grepl('下肢', painpart2) ~ 1,
+    TRUE~0),
+  pain_uprExtrimities=case_when(
+    grepl('上肢', painpart) | grepl('上肢', painpart2) ~ 1,
+    TRUE~0),
+  pain_Body = case_when(
+    grepl('体幹', painpart) | grepl('体幹', painpart2) ~ 1,
+    TRUE~0),
+  pain_NeckSholder = case_when(
+    grepl('頚|肩', painpart) | grepl('頚|肩', painpart2) ~ 1,
+    TRUE~0),
+  pain_Head=case_when(
+    grepl('顔|頭', painpart) | grepl('顔|頭', painpart2) ~ 1,
+    TRUE~0)) %>%
+  mutate(sfpain_intense = case_when(
+    sfpain_intense=='わずかな痛み'~ '1:Mild',
+    sfpain_intense=='わずらわしい痛み'~ '2:Discomforting',
+    sfpain_intense=='やっかいで情けない痛み'~ '3:Distressing',
+    sfpain_intense=='激しい痛み'~ '4:Horrible',
+    sfpain_intense=='耐え難い痛み'~ '5:Excruciating')) %>%
+  mutate(pddrug_effective = ifelse(pddrug_effective=='有り', 1, 0) %>% as.factor)
+
 # write.csv(df,  'toCheck.csv', fileEncoding = 'cp932', row.names = F)
 dfa = df %>% 
-  mutate(drop = ifelse(id%in% idDrop, 1, 0)) %>%
-  select(id, age, sex, dur_pd, dur_pain, 
+  mutate(dropI = ifelse(id%in% idDrop, 1, 0)) %>%
+  mutate_at(vars(starts_with('pain_')), as.factor) %>% 
+  select(id, age, sex, dur_pd, pddrug_effective,
+         dur_pain, pain_Head, pain_NeckSholder, pain_Body, pain_uprExtrimities, pain_lwrExtrimities, 
+         sfpain_intense,
          grp, drop, start, EVENT, VAS,
          yahr_on, yahr_off, levodopa, led, 
          sfpain, bdi, status_updrs, updrs3, 
@@ -176,23 +213,44 @@ dfa = df %>%
          first_vas, walking)
 
 library(tableone)
+dfa %>% filter(EVENT=='BL') %>%
+  mutate(drop=as.factor(drop)) %>%
+  select(-id) %>%
+  CreateTableOne(data=.)
+
+dfa %>% filter(EVENT=='BL') %>%
+  mutate(drop=as.factor(drop)) %>%
+  select(-id) %>%
+  select(starts_with('pain_'), sfpain_intense) %>%
+  CreateTableOne(data=., strata='sfpain_intense')
+
+options(max.print=2000)
+skim_tee(df)
+
+
+df %>% filter(!(id %in% idDrop)) %>% with(boxplot(VAS~EVENT))
+df %>% filter(!(id %in% idDrop)) %>% with(boxplot(log(walking)~EVENT))
+hist(df$walking)
+hist(df$VAS)
+#######
+FAS = df %>% filter(id != '01-00011') %>%
+  filter(((id %in% idDrop) & (EVENT=='CANCEL')) | (!(id %in% idDrop) & (EVENT=='W10')))
+PPS = df %>% filter(EVENT=='W10')
+
+# Analysis
+data = FAS
+outcome = 'VAS'
+data2 = left_join(dfa %>% filter(EVENT=='BL'), data, by = 'id') 
+change = with(data2, eval(parse(text = paste0(outcome, '.x - ', outcome, '.y '))))
+hist(change)
+mean(change, na.rm =T)
+lm(change ~ grp.y+age.y+sex.y+led.y+dur_pd.y+dur_pain.y+BMI+VAS.x+
+     pddrug_effective.y+I(age.y^2-mean(data2$age.y, na.rm = T)), data = data2) %>% summary
+lm(change ~ grp.x+age.y+sex.y+VAS.x+led.x, data = data2) %>% summary
+a
 
 
 
-df = df %>%
-  mutate(LDOPA = sum(ldbz, ldcd, ldcden, na.rm = T),
-         )
-
-
-w14[c('ldbz', 'ldcd',
-      'ldcden', 'ropin', 'pramp', 'rotig', 'apomo',
-      'bromo', 'caber', 'pergo', 'seleg', 'amant',
-      'zonis', 'istra', 'dorox', 'trihe', 
-      'poultice')][is.na(w14[c('ldbz', 'ldcd',
-                               'ldcden', 'ropin', 'pramp', 'rotig', 'apomo',
-                               'bromo', 'caber', 'pergo', 'seleg', 'amant',
-                               'zonis', 'istra', 'dorox', 'trihe', 
-                               'poultice')])] = 0
 
 
 
@@ -201,10 +259,15 @@ w14[c('ldbz', 'ldcd',
 
 
 
-cancelPPS = cancel %>% filter(!is.na(compliance)) %>%
 
 
 
+
+
+
+
+cancelPPS = cancel %>% filter(!is.na(compliance)) %>
+  
 
 
 w10 = merge(w10, cancel[c('id', 'fas','pps')], by="id", all.x=T)
