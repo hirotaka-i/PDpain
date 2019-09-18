@@ -205,7 +205,7 @@ dfa = df %>%
   select(id, age, sex, dur_pd, pddrug_effective,
          dur_pain, pain_Head, pain_NeckSholder, pain_Body, pain_uprExtrimities, pain_lwrExtrimities, 
          sfpain_intense,
-         grp, drop, start, EVENT, VAS,
+         grp, dropI, start, EVENT, VAS,
          yahr_on, yahr_off, levodopa, led, 
          sfpain, bdi, status_updrs, updrs3, 
          pdq_mobility, pdq_adl, pdq_ewb, pdq_stigma,
@@ -214,12 +214,12 @@ dfa = df %>%
 
 library(tableone)
 dfa %>% filter(EVENT=='BL') %>%
-  mutate(drop=as.factor(drop)) %>%
+  mutate(dropI=as.factor(dropI)) %>%
   select(-id) %>%
-  CreateTableOne(data=.)
+  CreateTableOne(data=., strata = 'dropI')
 
 dfa %>% filter(EVENT=='BL') %>%
-  mutate(drop=as.factor(drop)) %>%
+  mutate(dropI=as.factor(dropI)) %>%
   select(-id) %>%
   select(starts_with('pain_'), sfpain_intense) %>%
   CreateTableOne(data=., strata='sfpain_intense')
@@ -232,11 +232,13 @@ df %>% filter(!(id %in% idDrop)) %>% with(boxplot(VAS~EVENT))
 df %>% filter(!(id %in% idDrop)) %>% with(boxplot(log(walking)~EVENT))
 hist(df$walking)
 hist(df$VAS)
+
 #######
 FAS = df %>% filter(id != '01-00011') %>%
   filter(((id %in% idDrop) & (EVENT=='CANCEL')) | (!(id %in% idDrop) & (EVENT=='W10')))
 PPS = df %>% filter(EVENT=='W10')
 
+data2 %>% filter(is.na(BMI)) %>% .[,1:5]
 # Analysis
 data = FAS
 outcome = 'VAS'
@@ -246,16 +248,81 @@ hist(change)
 mean(change, na.rm =T)
 lm(change ~ grp.y+age.y+sex.y+led.y+dur_pd.y+dur_pain.y+BMI+VAS.x+
      pddrug_effective.y+I(age.y^2-mean(data2$age.y, na.rm = T)), data = data2) %>% summary
-lm(change ~ grp.x+age.y+sex.y+VAS.x+led.x, data = data2) %>% summary
-a
+lm(change ~ grp.x+VAS.x+pddrug_effective.y, data = data2) %>% summary
+
+mod1 = lm(change ~ age.x+sex.x+pddrug_effective.x+
+            dur_pd.x+dur_pain.x+BMI+
+            VAS.x+updrs3.x+bdi.x+sfpain.x+
+            led.x+levodopa.x, data = data2)
+
+# data2 %>% dplyr::select(
+#   age.x, sex.x, pddrug_effective.x, 
+#   dur_pd.x, dur_pain.x, BMI, 
+#   VAS.x, walking.x, updrs3.x, bdi.x, sfpain.x,
+#   led.x, levodopa.x) %>% skim_tee()
+
+summary(mod1)
+library(MASS)
+mod_fin = stepAIC(mod1, trace = F)
+mod_fin %>% summary
+# mod2 = lm(change ~ dur_pain.y+BMI+VAS.x+
+#             pddrug_effective.y+bdi.y, data = data2)
+# mod2 %>% summary
+
+# Analysis
+data = FAS
+outcome = 'walking'
+data2 = left_join(dfa %>% filter(EVENT=='BL'), data, by = 'id') 
+change = with(data2, eval(parse(text = paste0(outcome, '.x - ', outcome, '.y '))))
+hist(change)
+mean(change, na.rm =T)
+mod1 = lm(change ~ age.x+sex.x+pddrug_effective.x+
+            dur_pd.x+dur_pain.x+BMI+
+            VAS.x+updrs3.x+bdi.x+sfpain.x+walking.x+
+            led.x+levodopa.x, data = data2)
+mod_fin = stepAIC(mod1, trace = F)
+mod_fin %>% summary
 
 
+# Analysis
+outcome = 'updrs3'
+data2 = left_join(dfa %>% filter(EVENT=='BL'), data, by = 'id') 
+change = with(data2, eval(parse(text = paste0(outcome, '.x - ', outcome, '.y '))))
+hist(change)
+mean(change, na.rm =T)
+mod1 = lm(change ~ age.x+sex.x+pddrug_effective.x+
+            dur_pd.x+dur_pain.x+BMI+
+            VAS.x+updrs3.x+bdi.x+sfpain.x+walking.x+
+            led.x+levodopa.x, data = data2)
+mod_fin = stepAIC(mod1, trace = F)
+mod_fin %>% summary
 
 
+outcome = 'sfpain'
+data2 = left_join(dfa %>% filter(EVENT=='BL'), data, by = 'id') 
+change = with(data2, eval(parse(text = paste0(outcome, '.x - ', outcome, '.y '))))
+hist(change)
+mean(change, na.rm =T)
+mod1 = lm(change ~ age.x+sex.x+pddrug_effective.x+
+            dur_pd.x+dur_pain.x+BMI+
+            VAS.x+updrs3.x+bdi.x+sfpain.x+walking.x+
+            led.x+levodopa.x, data = data2)
+mod_fin = stepAIC(mod1, trace = F)
+mod_fin %>% summary
 
 
-
-
+outcome = 'bdi'
+data2 = left_join(dfa %>% filter(EVENT=='BL'), data, by = 'id') 
+change = with(data2, eval(parse(text = paste0(outcome, '.x - ', outcome, '.y '))))
+hist(change)
+mean(change, na.rm =T)
+mod1 = lm(change ~ age.x+sex.x+pddrug_effective.x+
+            dur_pd.x+dur_pain.x+BMI+
+            VAS.x+updrs3.x+bdi.x+sfpain.x+walking.x+
+            led.x+levodopa.x, data = data2)
+mod_fin = stepAIC(mod1, trace = F)
+mod_fin %>% summary
+d
 
 
 
