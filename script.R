@@ -11,8 +11,6 @@ assign = assign %>%
   mutate(sex = ifelse(sex==2, 'male', 'female')) %>%
   mutate(vas=as.numeric(as.character(vas)))
 
-assign$grp = rnorm(nrow(assign))<0 # temporary
-
 ##################################################
 patient = read_csv('data/CymbaltaTrial_Patient.csv', na = c("@", ""),
                    locale = (locale(encoding = 'cp932')))
@@ -121,9 +119,9 @@ w10 = w10 %>%
 
 vall = unique(c(vPatient, vW10, vCancel, vW14))
 df = bind_rows(patient, w10, cancel, w14) %>%
-  select(c(vall, EVENT)) %>%
+  dplyr::select(c(vall, 'EVENT')) %>%
   rename(VAS=vas) %>%
-  left_join(assign %>% select(id, grp, age, sex, vas, day0) %>% rename(first_vas=vas), ., by = 'id') %>%
+  left_join(assign %>% dplyr::select(id, grp, age, sex, vas, day0) %>% rename(first_vas=vas), ., by = 'id') %>%
   mutate(VAS=ifelse(EVENT=='BL', first_vas, VAS),
          date_visit=ifelse(EVENT=='BL', day0, date_visit))
 
@@ -156,20 +154,19 @@ df = read_csv('temp/toAnalyze.csv', locale = locale(encoding = 'cp932')) %>%
   })) %>%
   mutate(sfpain = ifelse(sfpain==0, NA, sfpain),
          bdi = ifelse(bdi==0, NA, bdi),
-         updrs3 = ifelse(updrs3==3, NA, updrs3)) %>%
+         updrs3 = ifelse(updrs3==3, NA, updrs3)) %>% 
   mutate(levodopa = ldbz + ldcd + ldcden,
          led = ldbz + ldcd + ldcden + ropin * 20 +
            pramp * 100 + rotig * 40/3 + apomo * 10 + bromo * 10 +
            caber * 67 + pergo * 100 + seleg * 100 + amant * 1,
-         walking = walkm*60 + walks + walkms/100, 
-         dur_pd = (as.numeric(as.Date(day0)) -as.numeric(as.Date(date_motor)))/365.25,
-         dur_pain = (as.numeric(as.Date(day0)) -as.numeric(as.Date(date_pain)))/365.25,
+         walking = walkm*60 + walks + walkms/100,
+         dur_pd = (as.numeric(as.Date(day0)) -as.numeric(date_motor))/365.25,
+         dur_pain = (as.numeric(as.Date(day0)) -as.numeric(date_pain))/365.25,
          BMI = bw/((height/100)^2)) %>%
   group_by(id) %>%
-  mutate(start = date_visit - as.numeric(as.Date(day0))) %>%
+  mutate(start = as.numeric(date_visit) - as.numeric(as.Date(day0))) %>%
   ungroup()
-  
-
+df %>% select(start)
 idDrop = df %>% filter(EVENT=='CANCEL') %>% .$id %>% unique
 
 
@@ -202,7 +199,7 @@ df = df %>% mutate(
 dfa = df %>% 
   mutate(dropI = ifelse(id%in% idDrop, 1, 0)) %>%
   mutate_at(vars(starts_with('pain_')), as.factor) %>% 
-  select(id, age, sex, dur_pd, pddrug_effective,
+  dplyr::select(id, age, sex, dur_pd, pddrug_effective,
          dur_pain, pain_Head, pain_NeckSholder, pain_Body, pain_uprExtrimities, pain_lwrExtrimities, 
          sfpain_intense,
          grp, dropI, start, EVENT, VAS,
@@ -216,7 +213,7 @@ library(tableone)
 dfa %>% filter(EVENT=='BL') %>%
   mutate(dropI=as.factor(dropI)) %>%
   select(-id) %>%
-  CreateTableOne(data=., strata = 'dropI')
+  CreateTableOne(data=., strata = 'grp')
 
 dfa %>% filter(EVENT=='BL') %>%
   mutate(dropI=as.factor(dropI)) %>%
@@ -246,10 +243,6 @@ data2 = left_join(dfa %>% filter(EVENT=='BL'), data, by = 'id')
 change = with(data2, eval(parse(text = paste0(outcome, '.x - ', outcome, '.y '))))
 hist(change)
 mean(change, na.rm =T)
-lm(change ~ grp.y+age.y+sex.y+led.y+dur_pd.y+dur_pain.y+BMI+VAS.x+
-     pddrug_effective.y+I(age.y^2-mean(data2$age.y, na.rm = T)), data = data2) %>% summary
-lm(change ~ grp.x+VAS.x+pddrug_effective.y, data = data2) %>% summary
-
 mod1 = lm(change ~ age.x+sex.x+pddrug_effective.x+
             dur_pd.x+dur_pain.x+BMI+
             VAS.x+updrs3.x+bdi.x+sfpain.x+
@@ -265,6 +258,9 @@ summary(mod1)
 library(MASS)
 mod_fin = stepAIC(mod1, trace = F)
 mod_fin %>% summary
+lm(change ~ grp.x+age.x+VAS.x+sex.x, data = data2) %>% summary
+ggplot(data=df, aes(x=EVENT, y=VAS, colour=grp)) + geom_boxplot()
+
 # mod2 = lm(change ~ dur_pain.y+BMI+VAS.x+
 #             pddrug_effective.y+bdi.y, data = data2)
 # mod2 %>% summary
@@ -282,6 +278,7 @@ mod1 = lm(change ~ age.x+sex.x+pddrug_effective.x+
             led.x+levodopa.x, data = data2)
 mod_fin = stepAIC(mod1, trace = F)
 mod_fin %>% summary
+lm(change ~ grp.x+walking.x, data = data2) %>% summary
 
 
 # Analysis
@@ -290,6 +287,7 @@ data2 = left_join(dfa %>% filter(EVENT=='BL'), data, by = 'id')
 change = with(data2, eval(parse(text = paste0(outcome, '.x - ', outcome, '.y '))))
 hist(change)
 mean(change, na.rm =T)
+lm(change ~ grp.x+updrs3.x+led.x, data = data2) %>% summary
 mod1 = lm(change ~ age.x+sex.x+pddrug_effective.x+
             dur_pd.x+dur_pain.x+BMI+
             VAS.x+updrs3.x+bdi.x+sfpain.x+walking.x+
@@ -303,6 +301,7 @@ data2 = left_join(dfa %>% filter(EVENT=='BL'), data, by = 'id')
 change = with(data2, eval(parse(text = paste0(outcome, '.x - ', outcome, '.y '))))
 hist(change)
 mean(change, na.rm =T)
+lm(change ~ grp.x+sfpain.x, data = data2) %>% summary
 mod1 = lm(change ~ age.x+sex.x+pddrug_effective.x+
             dur_pd.x+dur_pain.x+BMI+
             VAS.x+updrs3.x+bdi.x+sfpain.x+walking.x+
@@ -316,6 +315,7 @@ data2 = left_join(dfa %>% filter(EVENT=='BL'), data, by = 'id')
 change = with(data2, eval(parse(text = paste0(outcome, '.x - ', outcome, '.y '))))
 hist(change)
 mean(change, na.rm =T)
+lm(change ~ grp.x+bdi.x, data = data2) %>% summary
 mod1 = lm(change ~ age.x+sex.x+pddrug_effective.x+
             dur_pd.x+dur_pain.x+BMI+
             VAS.x+updrs3.x+bdi.x+sfpain.x+walking.x+
@@ -323,6 +323,47 @@ mod1 = lm(change ~ age.x+sex.x+pddrug_effective.x+
 mod_fin = stepAIC(mod1, trace = F)
 mod_fin %>% summary
 d
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
