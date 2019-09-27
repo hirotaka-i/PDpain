@@ -72,7 +72,6 @@ listFunc[[6]] = function(df){
   dfpdq$pdq_body = dfpdq$pdq_body/12*100
   return(dfpdq)
 }
-
 listFunc[[7]] = function(df){
   # get seconds for 3m Up and go
   dfupgo = df[, grep('TUG', names(df))] %>% data.matrix
@@ -244,11 +243,11 @@ units = c('mm', 'Score', 'PRI', 'PRI', 'PRI', 'Score',
           rep('%', 8), 'seconds')
 testnames = c('Visual Analogue Scale', "Beck's Depression Inventory", 
               'SF_MPQ, Total', 'SF-MPQ, Sensory', 'SF-MPQ, Affective',
-              'MDS-UPDRS part III', 
+              'UPDRS part III', 
               paste('PDQ39', c('Mobility', 'ADL', 'Emotional Well-Being',
                                'Stigma', 'Social Support', 'Cognition', 
                                'Communication', 'Bodily Discomfort'), sep=', '),
-              '3m Up and Go Test') 
+              'Timed Up-and-Go') 
 pps = t %>% filter(dropI==0, EVENT %in% c('BL', 'W10'))
 
 fas = t %>% 
@@ -274,7 +273,7 @@ fas %>% filter(EVENT=='BL') %>%
   print(quote = FALSE, noSpaces = TRUE, printToggle = FALSE) %>%
   write.csv(file='output/table1.csv')
 
-# Table 2
+# SupTable 1
 dfdrop %>% select(id, compliance, grp)
 
 # Fisher's exact test
@@ -331,8 +330,9 @@ testfunc = function(df, test_item, cov_items=c()){
   return(summary(a))
 }
 testfunc(fas, 'vas')
+testfunc(fas, 'vas', 'bdi')
 
-# Table 3
+# Table 2
 giveRes = function(df, outcome){
   t = testfunc(df, outcome)
   res = coef(t) %>% .['duloxetine',]
@@ -423,3 +423,38 @@ for (i in 1:length(outcomes)){
 }
 p = gridExtra::grid.arrange(grobs=figs, ncol=3, )
 ggsave(plot = p, filename = 'output/supfig1.png', width=9, height = 12)
+
+
+# track drug change; only one case in placebo
+fas %>% arrange(id,date_visit) %>%
+  group_by(id) %>%
+  mutate(change=last(led)-first(led)) %>%
+  distinct(id, .keep_all = T) %>%
+  arrange(grp, change) %>% 
+  select(id, grp, change) %>%
+  filter(change!=0)
+
+
+# UPDRS in detail: improvement in both legs and walking?
+getUPDRS = function(df, visit = 1){
+  updrsIdx = grep('UPDRS', names(df))[3:29]
+  d = df[c(1, updrsIdx)]
+  names(d)[1] = 'id'
+  d$date_visit = visit
+  return(d)
+}
+
+dfu = bind_rows(
+  getUPDRS(read_csv('data/CymbaltaTrial_Patient.csv', na = c("@", ""),
+                         locale = (locale(encoding = 'cp932'))), visit = 1),
+  getUPDRS(read_csv('data/CymbaltaTrial_Cancel.csv', na = c("@", ""),
+                    locale = (locale(encoding = 'cp932'))), visit = 2),
+  getUPDRS(read_csv('data/CymbaltaTrial_FollowW10.csv', na = c("@", ""),
+                    locale = (locale(encoding = 'cp932'))), visit = 3)) %>%
+  filter(!is.na(.[[2]])) %>%
+  inner_join(., pps %>% distinct(id, .keep_all=T) %>% select(-date_visit), by = 'id')
+updrsItems = names(dfu)[2:28]
+testfunc(dfu, updrsItems[1])
+dfuRes = lapply(updrsItems, function(x){giveRes(dfu, x)}) %>%
+  bind_rows(.)
+dfuRes %>% arrange(p) %>% head
